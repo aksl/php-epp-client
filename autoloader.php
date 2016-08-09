@@ -69,6 +69,23 @@ function autoloadEPP($className) {
         //echo "Autoloaded EPP $fileName\n";
         require($fileName);
     }
+
+    // Logger files
+    if (strpos($className, 'Logger')) {
+        $fileName = str_replace('Metaregistrar\\EPP\\', '', $className) . '.php';
+        $fileName = implode(DIRECTORY_SEPARATOR, [
+            __DIR__,
+            'Protocols',
+            'EPP',
+            'eppLoggers',
+            $fileName
+        ]);
+
+        if (is_readable($fileName)) {
+            require($fileName);
+        }
+    }
+
 }
 function autoloadTMCH($className) {
     // First load data elements

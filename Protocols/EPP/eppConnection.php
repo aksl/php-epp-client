@@ -99,6 +99,12 @@ class eppConnection {
     protected $logging;
 
     /**
+     * eppLoggers
+     * @var eppLoggerInterface[] loggers
+     */
+    protected $loggers = [];
+
+    /**
      * Commands and equivalent responses
      * @var array
      */
@@ -123,8 +129,6 @@ class eppConnection {
      * @var boolean
      */
     protected $allow_self_signed = null;
-
-    protected $logentries = array();
 
     protected $checktransactionids = true;
 
@@ -175,6 +179,7 @@ class eppConnection {
     function __construct($logging = false, $settingsfile = null) {
         if ($logging) {
             $this->enableLogging();
+            $this->addDebugLogger();
         }
         #
         # Initialize default values for config parameters
@@ -362,7 +367,7 @@ class eppConnection {
                 stream_context_set_option($context, 'ssl', 'allow_self_signed', $this->allow_self_signed);
             }
             if ($this->connection = stream_socket_client($target, $errno, $errstr, $this->timeout, STREAM_CLIENT_CONNECT, $context)) {
-                $this->writeLog("Connection made","CONNECT");
+                $this->writeLog("Connection made","CONNECT", ['target' => $target]);
                 $this->connected = true;
                 $this->read();
                 return true;
@@ -383,7 +388,7 @@ class eppConnection {
                 stream_set_blocking($this->connection, false);
                 stream_set_timeout($this->connection, $this->timeout);
                 if ($errno == 0) {
-                    $this->writeLog("Connection made","CONNECT");
+                    $this->writeLog("Connection made","CONNECT", ['target' => $this->hostname.':'.$this->port]);
                     $this->connected = true;
                     $this->read();
                     return true;
@@ -409,7 +414,7 @@ class eppConnection {
         }
         $login = new eppLoginRequest;
         if ((($response = $this->writeandread($login)) instanceof eppLoginResponse) && ($response->Success())) {
-            $this->writeLog("Logged in","LOGIN");
+            $this->writeLog("Logged in","LOGIN", ['username' => $this->getUsername()]);
             $this->loggedin = true;
             return true;
         }
@@ -424,7 +429,7 @@ class eppConnection {
     public function logout() {
             $logout = new eppLogoutRequest();
             if ((($response = $this->writeandread($logout)) instanceof eppLogoutResponse) && ($response->Success())) {
-                $this->writeLog("Logged out","LOGOUT");
+                $this->writeLog("Logged out","LOGOUT", ['username' => $this->getUsername()]);
                 $this->loggedin = false;
                 return true;
             } else {
@@ -736,7 +741,7 @@ class eppConnection {
 
             if (strlen($xml)) {
                 if ($response->loadXML($xml)) {
-                    $this->writeLog($response->saveXML(null, LIBXML_NOEMPTYTAG),"READ");
+                    $this->writeLog($response->saveXML(null, LIBXML_NOEMPTYTAG),"READ", ['response' => $response, 'request' => $content]);
                     /*
                     ob_flush();
                     */
@@ -964,9 +969,37 @@ class eppConnection {
         return $this->xpathuri;
     }
 
+    /**
+     * Adds a logger
+     * @param eppLoggerInterface $logger
+     */
+    public function addLogger(eppLoggerInterface $logger)
+    {
+        $this->loggers[$logger->getKey()] = $logger;
+    }
+
+    /**
+     * Removes a logger by key
+     * @param  string $key Logger key
+     */
+    public function removeLogger($key)
+    {
+        if (isset($this->loggers[$key])) {
+            unset($this->loggers[$key]);
+        }
+    }
+
     private function enableLogging() {
         date_default_timezone_set("Europe/Amsterdam");
         $this->logging = true;
+    }
+
+    /**
+     * Adds debug logger.
+     */
+    protected function addDebugLogger()
+    {
+        $this->addLogger(new eppDebugLogger);
     }
 
     public function setConnectionDetails($settingsfile) {
@@ -1015,19 +1048,26 @@ class eppConnection {
         return null;
     }
 
+    /**
+     * Shows the log when the script has ended
+     */
     private function showLog() {
-        echo "==== LOG ====\n";
-        if (property_exists($this, 'logentries')) {
-            foreach ($this->logentries as $logentry) {
-                echo $logentry . "\n";
-            }
+        if (isset($this->loggers['debug'])) {
+            $this->loggers['debug']->showLog();
         }
     }
 
-    protected function writeLog($text,$action) {
+    /**
+     * Writes a new entry to the log
+     * @param string $text
+     * @param string $action
+     * @param array $context
+     */
+    protected function writeLog($text,$action, array $context = []) {
         if ($this->logging) {
-            //echo "-----".date("Y-m-d H:i:s")."-----".$text."-----end-----\n";
-            $this->logentries[] = "-----" . $action . "-----" . date("Y-m-d H:i:s") . "-----\n" . $text . "\n-----END-----" . date("Y-m-d H:i:s") . "-----\n";
+            foreach ($this->loggers as $logger) {
+                $logger->writeLog($text, $action, $context);
+            }
         }
     }
 }
